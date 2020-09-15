@@ -1,5 +1,7 @@
 apiVersion: apps/v1
 kind: Deployment
+# у нас мультизональный кластер (три зоны), k8s будет следить за тем, чтобы поды распределялись по нодам и зонам
+# распределение зависит от ресурсов
 metadata:
   name: php-apache
 spec:
@@ -17,10 +19,12 @@ spec:
         image: k8s.gcr.io/hpa-example
         ports:
         - containerPort: 80
+        # на первые запросы приложению требуется значительно больше ресурсов CPU => пусть лимит будет 0.2 CPU, в дальнейшем потребление ровное в районе 0.1 CPU. 
+        # По памяти всегда “ровно” в районе 128M memory
         resources:
           limits:
+            cpu: 200m
             memory: 128Mi
-            memory: 200Mi
           requests:
             cpu: 100m
             memory: 128Mi
@@ -28,6 +32,7 @@ spec:
           httpGet:
             path: /
             port: 80
+          # приложение требует около 5-10 секунд для инициализации, periodSeconds * failureThreshold должно быть достаточно
           periodSeconds: 5
           failureThreshold: 3
 ---
@@ -45,6 +50,8 @@ spec:
 ---
 apiVersion: autoscaling/v1
 kind: HorizontalPodAutoscaler
+# приложение имеет дневной цикл по нагрузке – ночью запросов на порядки меньше, пик – днём.
+# Пусть HorizontalPodAutoscaler следит за нагрузкой и добавляет реплики днём во время пика
 metadata:
   name: php-apache
 spec:
@@ -53,5 +60,6 @@ spec:
     kind: Deployment
     name: php-apache
   minReplicas: 1
+  # по результатам нагрузочного теста известно, что 4 пода справляются с пиковой нагрузкой
   maxReplicas: 4
   targetCPUUtilizationPercentage: 20
